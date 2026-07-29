@@ -1,17 +1,50 @@
-# Platform Matrix
+# Platform matrix
 
-|类型|平台|处理方式|
-|-|-|-|
-|出版社全文|ScienceDirect, Springer, Wiley, IEEE, ACS, RSC|DOI 路由到开放获取、官方 API 或机构会话|
-|中文全文|CNKI, Wanfang, CQVIP|生成浏览器队列，用户完成登录和原生下载|
-|引文索引|Scopus, Web of Science|导出 DOI 后进入全文流程|
-|专业索引|SciFinder|导出文献标识，不假设直接提供 PDF|
-|认证入口|WebVPN, CARSI, EZproxy|用户本地完成认证|
-|电子书|畅想之星、可知等|人工审查，不处理 DRM 绕过|
+## Contents
 
-## 路由原则
+- Open PDF sources
+- Discovery and metadata sources
+- Institution-authorized sources
+- Unsupported automation
 
-1. 优先开放获取。
-2. 优先官方 API。
-3. 使用机构授权访问。
-4. 无权限时明确报告。
+## Open PDF sources
+
+| Source | Role | PDF behavior | ScholarBridge adapter |
+|---|---|---|---|
+| CORE | OA aggregator | Returns repository full-text links when available | `core` |
+| Unpaywall | OA resolver | Returns legal OA PDF or landing-page locations | `unpaywall` |
+| arXiv | Preprint repository | Stable per-record PDF route | `arxiv` |
+| PMC OA Subset | Biomedical OA repository | Official PDF links and bulk datasets | `pmc` |
+| Europe PMC | Life-science discovery/OA | Resolves DOI to open PMCID, then uses PMC | `europe-pmc` |
+| OpenAlex | Scholarly graph and OA locations | Returns PDF URLs for some works; API key required | `openalex` |
+| DOAJ | OA journal directory | Usually returns publisher full-text or landing links | `doaj` |
+| Zenodo/institutional repositories | General repositories | Direct files vary by record | direct URL now; dedicated adapter later |
+
+## Discovery and metadata sources
+
+| Source | Use | Do not claim |
+|---|---|---|
+| Google Scholar | Human/browser-assisted discovery, versions, citations | No official bulk API; not a PDF warehouse |
+| Crossref | DOI metadata normalization | Metadata hit is not PDF success |
+| OpenCitations | Citation graph | Does not provide article PDFs |
+| PubMed | Biomedical citations and abstracts | PubMed is not PMC full text |
+| Scopus / Web of Science | Licensed discovery and exports | Do not automate PDF download through indexes |
+| SciFinder | Specialist index | Do not assume it hosts article PDF |
+
+## Institution-authorized sources
+
+| Type | Examples | Handling |
+|---|---|---|
+| Publisher platforms | ScienceDirect, Springer Nature, Wiley, IEEE, ACS, RSC | User-authenticated visible browser; respect license and TDM rules |
+| Chinese full-text platforms | CNKI, Wanfang, CQVIP | User performs login, CAPTCHA and native download |
+| Authentication gateways | CARSI, WebVPN, EZproxy, OpenAthens, Shibboleth | Authentication entry only; never collect credentials |
+| Library discovery systems | Primo, Summon and local portals | Resolve to the actual provider and record provenance |
+
+## Unsupported automation
+
+- Google Scholar unattended scraping or CAPTCHA bypass.
+- Publisher paywall circumvention.
+- Credential, session-cookie or token collection.
+- DRM removal or hidden-interface discovery.
+- Proxy rotation intended to evade rate limits.
+- Treating campus access as permission for unlimited automated retrieval.

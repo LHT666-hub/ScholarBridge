@@ -1,0 +1,16 @@
+{
+  "providers": [
+    "direct",
+    "arxiv",
+    "pmc",
+    "europe-pmc",
+    "unpaywall",
+    "openalex",
+    "core",
+    "doaj"
+  ],
+  "max_records": 100,
+  "max_mb": 100,
+  "timeout_seconds": 45,
+  "delay_seconds": 1.0
+}

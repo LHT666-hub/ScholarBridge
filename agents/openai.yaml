@@ -1,3 +1,4 @@
 interface:
-  display_name: "ScholarBridge 文献桥"
-  short_description: "统一规划并执行授权范围内的学术文献批量获取、浏览器接管与 PDF 核验"
+  display_name: "ScholarBridge 开放 PDF 文献桥"
+  short_description: "批量定位、下载、核验并归档合法开放学术 PDF 与文献报告"
+  default_prompt: "使用 $scholar-bridge 解析这批文献记录，先生成开放 PDF 获取计划，再下载并输出核验与失败报告。"
