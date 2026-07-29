@@ -1,0 +1,3 @@
+interface:
+  display_name: "ScholarBridge 文献桥"
+  short_description: "统一规划并执行授权范围内的学术文献批量获取、浏览器接管与 PDF 核验"
