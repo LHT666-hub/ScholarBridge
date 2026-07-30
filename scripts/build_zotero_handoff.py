@@ -25,6 +25,9 @@ def run(manifest_path: Path, output_dir: Path, collection: str = "") -> dict[str
                 "record_id": row.get("record_id", ""),
                 "title": row.get("title", ""),
                 "doi": row.get("doi", ""),
+                "authors": row.get("authors", ""),
+                "year": row.get("year", ""),
+                "source": row.get("source", ""),
                 "pdf_path": str(Path(row["pdf_path"]).resolve()),
                 "sha256": row.get("sha256", ""),
                 "collection": collection,
@@ -85,3 +88,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
