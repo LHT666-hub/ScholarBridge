@@ -6,6 +6,33 @@ ScholarBridge 将 DOI、PMCID、arXiv ID、BibTeX、RIS、CSV 和数据库导出
 
 > 如何从开放学术基础设施中批量定位合法全文，验证下载结果确实是 PDF，并把“没有开放版本”和“下载失败”如实保留下来。
 
+## 三种闭源数据库登录态技术路线
+
+ScholarBridge不保存账号密码，也不“破解”数据库登录。现有项目保持登录态主要有
+三种技术实现：
+
+| 路线 | 怎么保持登录态 | 代表实现 | 优点 | 主要不足 |
+|---|---|---|---|---|
+| 复用现有浏览器 | 连接用户已登录的真实 Chrome标签页；Cookie、SSO和 localStorage继续留在浏览器 | Kimi WebBridge、Playwright MCP浏览器扩展 | 不复制凭据，兼容 CARSI、WebVPN和人工验证码 | 依赖本地浏览器和扩展，页面操作仍可能因改版失败 |
+| 独立持久化浏览器 | Playwright使用专用 `user-data-dir`；用户首次手动登录，profile持续保存会话 | `wuruiqi/cnki-mcp` | 适合知网等平台专项自动化，下载事件容易监听 | profile属于敏感数据；平台选择器和分页需要持续维护 |
+| 显式 Cookie恢复 | 工具导出特定域名 Cookie为 JSON，下次注入浏览器上下文 | 部分 CNKI自动化项目 | 重启后恢复方便 | Cookie相当于临时凭据，存在泄露和失效风险；ScholarBridge不采用 |
+
+三条路线都必须建立在用户已有合法访问权之上。CAPTCHA、机构登录、下载警告和
+批量限制仍由用户处理；Skill不会自动绕过。
+
+## 完整 PDF 获取路线
+
+| 获取层 | 实现 | 当前状态 |
+|---|---|---|
+| 开放全文 | arXiv、PMC、Europe PMC、Unpaywall、OpenAlex、CORE、DOAJ | 已实现自动解析、下载与验证 |
+| 官方开放批量 | OpenAlex官方 CLI、pygetpapers、paperscraper、官方快照 | 已形成外部适配方案 |
+| 中文数据库元数据 | Zotero `translators_CN`、数据库导出的 RIS/EndNote/BibTeX | 支持导入；Translator作为外部依赖 |
+| 闭源数据库 PDF | 真实浏览器或持久化浏览器完成原生下载 | 已实现任务队列和下载目录接管；平台专项点击器仍在扩充 |
+| 本地 PDF → Zotero | PDF验证、SHA-256去重、Zotero MCP查重和附件关联 | 已实现交接任务；需要运行中的 Zotero写入工具 |
+
+参考项目、源码机制、许可证和局限见
+[`references/acquisition-routes.md`](references/acquisition-routes.md)。
+
 ## 已实现
 
 - CSV、TSV、JSON、JSONL、TXT、BibTeX 和 RIS 输入；
