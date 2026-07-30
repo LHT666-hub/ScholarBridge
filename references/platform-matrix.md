@@ -48,3 +48,4 @@
 - DRM removal or hidden-interface discovery.
 - Proxy rotation intended to evade rate limits.
 - Treating campus access as permission for unlimited automated retrieval.
+- Sci-Hub/SciPDF resolver integration or other unverified unauthorized mirrors.

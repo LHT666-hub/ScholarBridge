@@ -1,6 +1,6 @@
-# ScholarBridge｜开放 PDF 文献桥
+# ScholarBridge｜开放与授权 PDF 文献桥
 
-ScholarBridge 将 DOI、PMCID、arXiv ID、BibTeX、RIS、CSV 和数据库导出转化为经过核验的本地学术 PDF，并为每条记录保留来源、许可、版本、哈希与失败原因。
+ScholarBridge 将 DOI、PMCID、arXiv ID、BibTeX、RIS、CSV 和数据库导出转化为经过核验的本地学术 PDF，并为每条记录保留来源、访问类型、版本、哈希与失败原因。开放版本自动解析；CNKI、万方、维普和出版社内容通过用户已经登录的可见浏览器进行授权下载，再交接到 Zotero。
 
 它不是 Google Scholar 爬虫，也不是付费墙绕过器。它解决的是：
 
@@ -21,6 +21,9 @@ ScholarBridge 将 DOI、PMCID、arXiv ID、BibTeX、RIS、CSV 和数据库导出
 - `manifest.csv`、`plan.jsonl`、`attempts.jsonl`、`report.md`；
 - Windows/Linux 兼容的标准库实现；
 - 自动测试和可安装 Skill ZIP。
+- CNKI、万方、维普、出版社等授权浏览器下载队列；
+- 浏览器下载目录接管、残缺文件检测、PDF匹配与归档；
+- Zotero MCP查重、导入与附件关联交接任务。
 
 ## 开放来源
 
@@ -72,6 +75,10 @@ python scripts/doctor.py
 python -m unittest discover -s tests -v
 ```
 
+`doctor.py` 同时检查开放 API 配置、Kimi WebBridge Skill/本地端口、可选
+`cnki-mcp` 命令、Zotero Desktop Connector 与 Zotero MCP端口。端口未监听通常
+只是相关桌面程序尚未启动，不等于安装失败。
+
 ### 1. 规范化文献清单
 
 ```bash
@@ -117,6 +124,48 @@ Windows PowerShell 如果找不到 `python`，可以使用已经安装的解释�
 python scripts/verify_pdfs.py literature_run/acquisition/pdf \
   --output-dir literature_run/verification
 ```
+
+### 5. 处理机构订阅数据库
+
+```bash
+python scripts/prepare_authorized_queue.py \
+  literature_run/normalized/records.jsonl \
+  --output-dir literature_run/authorized
+```
+
+按生成的 `browser-handoff.md` 在可见浏览器里登录并使用平台原生 PDF
+下载按钮。ScholarBridge不接收账号密码，也不把 Cookie 写进项目。
+
+```bash
+python scripts/ingest_downloads.py \
+  literature_run/authorized/authorized-queue.jsonl \
+  --download-dir ~/Downloads \
+  --output-dir literature_run/authorized-ingest
+```
+
+### 6. 交接到 Zotero
+
+```bash
+python scripts/build_zotero_handoff.py \
+  literature_run/authorized-ingest/ingest-manifest.csv \
+  --output-dir literature_run/zotero \
+  --collection ScholarBridge
+```
+
+Agent读取 `zotero-handoff.jsonl` 后，优先通过 Zotero MCP 按 DOI/题名查重：
+已有条目使用 `zotero_attach_file`，新条目使用 `zotero_add_from_file`。若当前
+环境没有 Zotero写入工具，必须报告“只生成交接任务”，不能宣称已经入库。
+
+## 登录态到底怎么保持
+
+ScholarBridge不模拟用户输入账号密码。可选方式是：
+
+1. Kimi WebBridge或 Playwright MCP扩展连接到用户已经登录的真实 Chrome；
+2. 平台专项工具启动一个可见的 Playwright持久化浏览器目录，用户首次手动登录；
+3. 不推荐但部分项目采用的 Cookie JSON导出/恢复。
+
+前两种让认证材料留在浏览器。详细项目分析、技术路线和限制见
+[`references/acquisition-routes.md`](references/acquisition-routes.md)。
 
 ## 可选配置
 
@@ -203,11 +252,17 @@ ScholarBridge/
 └── .github/workflows/test.yml
 ```
 
-## 仍未实现
+## 尚未完全实现
 
 - Google Scholar自动抓取——有意不做；
-- 知网、万方、维普无人值守下载——需要用户授权浏览器和平台许可；
+- 知网、万方、维普的通用无人值守下载——有意保留用户登录、CAPTCHA和下载确认；
 - Zenodo REST 与通用 OAI-PMH 专项适配器；
-- Zotero自动附件入库；
+- 无 Zotero MCP 时的跨版本直接附件写入；
 - 全数据库快照镜像；
-- 机构登录 Cookie 自动提取。
+- 各闭源平台长期稳定的 DOM 选择器与实库回归测试。
+
+## 不采用的路线
+
+SciPDF（也常被称为 ScanSciPDF）通过向 Zotero写入 Sci-Hub自定义 PDF resolver，
+按 DOI尝试补附件。它不是开放获取校验，也不是机构登录路线。ScholarBridge仅在
+技术路线文档中说明其机制，不集成、不测试也不分发 Sci-Hub resolver。

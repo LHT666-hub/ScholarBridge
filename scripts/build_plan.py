@@ -9,6 +9,7 @@ from pathlib import Path
 
 from common import Record, write_jsonl
 from normalize_records import normalize_file
+from prepare_authorized_queue import detect_platform
 
 
 def load(path: Path) -> list[Record]:
@@ -32,7 +33,11 @@ def routes(record: Record) -> list[str]:
     if record.doi:
         result.extend(["europe-pmc", "unpaywall", "openalex", "core", "doaj"])
     if record.url and not record.pdf_url:
-        result.append("browser-review")
+        platform = detect_platform(record)
+        if platform == "google-scholar":
+            result.append("google-scholar-discovery")
+        else:
+            result.append(f"authorized-browser:{platform}")
     if not result:
         result.append("identifier-resolution-required")
     return result

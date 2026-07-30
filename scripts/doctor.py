@@ -7,13 +7,24 @@ import argparse
 import json
 import os
 import platform
+import shutil
+import socket
 import sys
 from pathlib import Path
 
 from common import request_bytes
 
 
+def _port_open(host: str, port: int, timeout: float = 0.3) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def run(online: bool) -> dict[str, object]:
+    home = Path.home()
     checks: dict[str, object] = {
         "python": sys.version.split()[0],
         "python_supported": sys.version_info >= (3, 10),
@@ -21,6 +32,22 @@ def run(online: bool) -> dict[str, object]:
         "contact_email_configured": bool(os.environ.get("SCHOLARBRIDGE_EMAIL")),
         "openalex_api_key_configured": bool(os.environ.get("OPENALEX_API_KEY")),
         "core_api_key_configured": bool(os.environ.get("CORE_API_KEY")),
+        "authorized_browser": {
+            "kimi_webbridge_skill_codex": (
+                home / ".codex" / "skills" / "kimi-webbridge" / "SKILL.md"
+            ).exists(),
+            "kimi_webbridge_skill_claude": (
+                home / ".claude" / "skills" / "kimi-webbridge" / "SKILL.md"
+            ).exists(),
+            "kimi_webbridge_daemon_10086": _port_open("127.0.0.1", 10086),
+            "cnki_mcp_command": bool(shutil.which("cnki-mcp")),
+        },
+        "zotero": {
+            "desktop_connector_23119": _port_open("127.0.0.1", 23119),
+            "mcp_23120": _port_open("127.0.0.1", 23120),
+            "zotero_mcp_command": bool(shutil.which("zotero-mcp")),
+            "zotero_cli_command": bool(shutil.which("zotero-cli")),
+        },
         "online": {},
     }
     if online:
