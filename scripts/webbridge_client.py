@@ -11,12 +11,16 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from browser_backend import BrowserBackendError
 
-class WebBridgeError(RuntimeError):
+
+class WebBridgeError(BrowserBackendError):
     """Raised when the local WebBridge daemon cannot complete a command."""
 
 
 class WebBridgeClient:
+    backend_name = "webbridge"
+
     def __init__(
         self,
         *,
@@ -93,6 +97,20 @@ class WebBridgeClient:
     def find_tab(self, url: str) -> dict[str, Any]:
         return self.command("find_tab", {"url": url})
 
+    def click_download(
+        self,
+        selector: str,
+        *,
+        download_dir: Path,
+        timeout: int,
+    ) -> Path | None:
+        del download_dir, timeout
+        self.click(selector)
+        return None
+
+    def close(self) -> None:
+        """The daemon owns the browser lifecycle; there is nothing to close."""
+
 
 def daemon_ready(host: str = "127.0.0.1", port: int = 10086, timeout: float = 0.4) -> bool:
     try:
@@ -118,4 +136,3 @@ def start_local_daemon() -> bool:
         timeout=30,
     )
     return completed.returncode == 0
-

@@ -15,9 +15,9 @@ description: 批量发现、下载、核验并归档学术 PDF，再交接到 Zo
 4. 获得用户明确下载请求后，加 `--execute` 获取开放 PDF。
 5. 对仍未获得全文且用户拥有正常访问权的记录，运行
    `scripts/prepare_authorized_queue.py`。
-6. 让用户亲自完成机构登录和 CAPTCHA；再运行
-   `scripts/run_authorized_browser.py --execute`，只操作可见的搜索、结果和原生 PDF
-   下载控件。遇到验证码、异常访问或平台警告立即停止。
+6. 让用户选择 `webbridge` 或 `playwright` 后端，并亲自完成机构登录和 CAPTCHA；
+   再运行 `scripts/run_authorized_browser.py --execute`，只操作可见的搜索、结果
+   和原生 PDF 下载控件。遇到验证码、异常访问或平台警告立即停止。
 7. 使用浏览器执行后的队列运行 `scripts/ingest_downloads.py`，验证并归档下载文件。
 8. 运行 `scripts/build_zotero_handoff.py`；Zotero MCP 提供兼容工具时，再运行
    `scripts/execute_zotero_handoff.py --execute` 完成查重、导入或附件关联并重新查询验证。
@@ -65,16 +65,46 @@ python scripts/prepare_authorized_queue.py `
   --output-dir literature_run/authorized
 ```
 
-用户先在真实浏览器完成登录；再使用 Kimi WebBridge 执行有界下载任务：
+### 复用现有 Chrome
+
+用户先在真实 Chrome 完成登录；再使用 Kimi WebBridge 执行有界下载任务：
 
 ```powershell
 python scripts/run_authorized_browser.py `
   literature_run/authorized/authorized-queue.jsonl `
+  --backend webbridge `
   --download-dir "$env:USERPROFILE\Downloads" `
   --output-dir literature_run/browser `
   --max-records 10 `
   --execute
 ```
+
+### 使用独立持久化 Chrome
+
+不依赖 Kimi WebBridge。首次由用户在专用 Playwright profile 中手动登录：
+
+```powershell
+python scripts/prepare_browser_profile.py `
+  --profile-dir "$env:USERPROFILE\.scholarbridge\browser-profiles\cnki" `
+  --url "https://www.cnki.net/"
+```
+
+随后复用该 profile：
+
+```powershell
+python scripts/run_authorized_browser.py `
+  literature_run/authorized/authorized-queue.jsonl `
+  --backend playwright `
+  --profile-dir "$env:USERPROFILE\.scholarbridge\browser-profiles\cnki" `
+  --download-dir "$env:USERPROFILE\Downloads" `
+  --output-dir literature_run/browser `
+  --max-records 10 `
+  --execute
+```
+
+若缺少依赖，运行 `python -m pip install playwright`。后端调用电脑已有的 Chrome，
+通常不需要下载额外 Chromium。profile 不得写入项目或分享；纯会话 Cookie 和失效
+SSO 仍可能要求重新登录。
 
 未找到控件、需要登录、触发验证码或下载后没有出现 PDF 时，保留相应状态并转人工，
 不要反复点击。对浏览器执行结果运行：
@@ -98,10 +128,10 @@ python scripts/execute_zotero_handoff.py `
   --execute
 ```
 
-`run_authorized_browser.py` 当前实现 Kimi WebBridge 后端，并用语义化页面树寻找控件。
-若页面结构无法可靠识别，保留 `needs-manual-browser-step`，不要猜测选择器。
-专用平台适配器还可以使用可见的 Playwright 持久化配置。两者都是复用数据库已建立
-的浏览器会话，不是模拟账号登录。
+`run_authorized_browser.py` 已实现 `webbridge` 与 `playwright` 两个后端，并用
+语义化页面树寻找控件。若页面结构无法可靠识别，保留
+`needs-manual-browser-step`，不要猜测选择器。前者复用日常 Chrome，后者复用
+ScholarBridge 专用 profile；两者都不是模拟账号登录。
 
 读取 [acquisition-routes.md](references/acquisition-routes.md) 了解各条技术路线、参考仓库、登录态实现及限制。
 
@@ -191,4 +221,3 @@ acquisition/
 - 因平台限制停止的记录。
 - 已成功关联进 Zotero 的记录与仅生成交接任务的记录。
 - 浏览器或 Zotero 执行器已经实际验证的记录与仅通过模拟服务测试的能力。
-

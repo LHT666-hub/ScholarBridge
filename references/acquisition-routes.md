@@ -14,8 +14,8 @@
 | Open-access resolvers | DOI/PMCID/arXiv lists | Official APIs and public PDF URLs | Implemented |
 | Official bulk tools | Large OA corpora | Provider CLI, snapshots, checkpoints | External adapter/documented |
 | Zotero Connector translators | Metadata and accessible attachments | Site translator runs in the browser and passes items to Zotero | External dependency/documented |
-| Existing logged-in browser | CNKI, Wanfang, CQVIP, publishers | Agent controls the user's visible Chrome tab and native download button | Queue + handoff implemented |
-| Dedicated persistent browser | A platform-specific repeatable workflow | Playwright persistent profile stores browser session data | Optional adapter/documented |
+| Existing logged-in browser | CNKI, Wanfang, CQVIP, publishers | Agent controls the user's visible Chrome tab and native download button | WebBridge runner implemented; local mock regression passed |
+| Dedicated persistent browser | A platform-specific repeatable workflow | Playwright persistent profile stores browser session data | Runner implemented; real local Chrome persistence/download test passed |
 | Download-folder intake | Any authorized native browser download | Validate, match, hash, copy, and generate Zotero tasks | Implemented |
 | Zotero ingestion | Validated local PDFs | Zotero MCP attaches/imports files and reconciles metadata | MCP handoff implemented |
 
@@ -38,8 +38,10 @@ password or Cookie file. It is the preferred general route.
 ### Dedicated persistent profile
 
 Playwright can launch a visible persistent browser context with a dedicated
-`user-data-dir`. The user completes login once, and the browser profile preserves
-cookies and local storage for later runs. `wuruiqi/cnki-mcp` uses this pattern for CNKI.
+`user-data-dir`. The user completes login, and the browser profile preserves durable
+cookies and local storage for later runs. Session-only cookies may disappear after the
+browser closes, while expired SSO state still requires the user to log in again.
+`wuruiqi/cnki-mcp` uses this general pattern for CNKI.
 
 This is convenient for a platform-specific adapter, but the profile directory becomes
 sensitive and must not be committed or shared.
@@ -181,3 +183,6 @@ ScholarBridge combines the compliant parts of these projects:
 8. Search Zotero before importing or attaching the validated PDF.
 
 The result is a cross-platform protocol rather than a fragile universal scraper.
+ScholarBridge now implements both the existing-Chrome WebBridge transport and an
+independent Playwright persistent-profile transport. It does not implement Cookie JSON
+export.

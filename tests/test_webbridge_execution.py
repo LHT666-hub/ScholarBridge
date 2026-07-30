@@ -91,8 +91,12 @@ class WebBridgeExecutionTests(unittest.TestCase):
                     downloads,
                     output,
                     execute=True,
+                    backend="webbridge",
                     base_url=f"http://127.0.0.1:{server.server_address[1]}",
                     session="test-session",
+                    profile_dir=root / "profile",
+                    chrome_executable=None,
+                    headless=True,
                     max_records=10,
                     download_timeout=3,
                     settle_seconds=0,
@@ -113,4 +117,3 @@ class WebBridgeExecutionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -55,6 +55,7 @@ Each line records one actual candidate attempt:
 |---|---|
 | `state` | Browser result such as `browser-download-complete`, `needs-user-authentication`, `needs-manual-browser-step`, `download-clicked-no-file`, or `stopped-platform-warning` |
 | `downloaded_filename` | Completed PDF filename observed in the browser download directory |
+| `browser_backend` | `webbridge` or `playwright` for rows actually executed |
 | `browser_error` | Concrete stop or failure reason |
 | `snapshot_excerpt` | Bounded accessibility-tree excerpt when a manual step is needed |
 
@@ -68,4 +69,3 @@ Each line records one actual candidate attempt:
 | `zotero_operation` | `attached-to-existing` or `created-from-file` |
 | `zotero_item_key` | Item key found after the write |
 | `zotero_error` | MCP transport, schema mapping, tool, or verification failure |
-
