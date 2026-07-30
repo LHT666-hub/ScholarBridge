@@ -14,11 +14,14 @@ description: 批量发现、下载、核验并归档学术 PDF，再交接到 Zo
 3. 先以 dry run 运行 `scripts/fetch_open_pdfs.py`，检查候选来源和任务规模。
 4. 获得用户明确下载请求后，加 `--execute` 获取开放 PDF。
 5. 对仍未获得全文且用户拥有正常访问权的记录，运行
-   `scripts/prepare_authorized_queue.py`，再按 `browser-handoff.md` 使用可见本地浏览器。
-6. 让用户亲自完成机构登录和 CAPTCHA；只用页面上可见的原生下载控制。
-7. 将实际下载文件名写入队列后运行 `scripts/ingest_downloads.py`，验证并归档。
-8. 运行 `scripts/build_zotero_handoff.py`，再调用可用的 Zotero MCP 工具逐项查重、导入或关联 PDF。
-9. 检查开放下载、浏览器下载、Zotero交接三段的 manifest 和失败原因。
+   `scripts/prepare_authorized_queue.py`。
+6. 让用户亲自完成机构登录和 CAPTCHA；再运行
+   `scripts/run_authorized_browser.py --execute`，只操作可见的搜索、结果和原生 PDF
+   下载控件。遇到验证码、异常访问或平台警告立即停止。
+7. 使用浏览器执行后的队列运行 `scripts/ingest_downloads.py`，验证并归档下载文件。
+8. 运行 `scripts/build_zotero_handoff.py`；Zotero MCP 提供兼容工具时，再运行
+   `scripts/execute_zotero_handoff.py --execute` 完成查重、导入或附件关联并重新查询验证。
+9. 检查开放下载、浏览器执行、PDF 接管、Zotero 写入四段的状态和失败原因。
 
 ## 快速命令
 
@@ -38,6 +41,7 @@ python scripts/fetch_open_pdfs.py literature_run/normalized/records.jsonl `
 python scripts/fetch_open_pdfs.py literature_run/normalized/records.jsonl `
   --output-dir literature_run/acquisition `
   --email researcher@example.edu `
+  --resume `
   --execute
 ```
 
@@ -61,11 +65,23 @@ python scripts/prepare_authorized_queue.py `
   --output-dir literature_run/authorized
 ```
 
-用户在真实浏览器完成登录并通过数据库原生按钮下载后：
+用户先在真实浏览器完成登录；再使用 Kimi WebBridge 执行有界下载任务：
+
+```powershell
+python scripts/run_authorized_browser.py `
+  literature_run/authorized/authorized-queue.jsonl `
+  --download-dir "$env:USERPROFILE\Downloads" `
+  --output-dir literature_run/browser `
+  --max-records 10 `
+  --execute
+```
+
+未找到控件、需要登录、触发验证码或下载后没有出现 PDF 时，保留相应状态并转人工，
+不要反复点击。对浏览器执行结果运行：
 
 ```powershell
 python scripts/ingest_downloads.py `
-  literature_run/authorized/authorized-queue.jsonl `
+  literature_run/browser/authorized-queue.browser.jsonl `
   --download-dir "$env:USERPROFILE\Downloads" `
   --output-dir literature_run/authorized-ingest
 
@@ -73,9 +89,19 @@ python scripts/build_zotero_handoff.py `
   literature_run/authorized-ingest/ingest-manifest.csv `
   --output-dir literature_run/zotero `
   --collection "ScholarBridge"
+
+python scripts/execute_zotero_handoff.py `
+  literature_run/zotero/zotero-handoff.jsonl `
+  --output-dir literature_run/zotero-executed `
+  --url "http://127.0.0.1:23120/mcp" `
+  --max-tasks 20 `
+  --execute
 ```
 
-优先使用现有 Chrome 会话：Kimi WebBridge或 Playwright MCP浏览器扩展。专用平台适配器可使用可见的 Playwright持久化配置。两者都是复用数据库已建立的浏览器会话，不是模拟账号登录。
+`run_authorized_browser.py` 当前实现 Kimi WebBridge 后端，并用语义化页面树寻找控件。
+若页面结构无法可靠识别，保留 `needs-manual-browser-step`，不要猜测选择器。
+专用平台适配器还可以使用可见的 Playwright 持久化配置。两者都是复用数据库已建立
+的浏览器会话，不是模拟账号登录。
 
 读取 [acquisition-routes.md](references/acquisition-routes.md) 了解各条技术路线、参考仓库、登录态实现及限制。
 
@@ -121,6 +147,12 @@ Google Scholar没有官方批量接口，也不是 PDF 仓库。学校订阅链�
 - `no_open_pdf`：仅发现元数据或没有开放版本。
 - `failed`：候选存在但下载、重定向或 PDF 校验失败。
 - `dry_run`：只建立计划，没有下载。
+- `browser-download-complete`：浏览器点击后监测到完整 PDF。
+- `needs-user-authentication`：必须由用户在真实浏览器完成登录。
+- `needs-manual-browser-step`：页面语义不足，不能安全自动选择控件。
+- `download-clicked-no-file`：点击后没有监测到完成的 PDF。
+- `zotero-complete`：MCP 写入后已重新查询到条目。
+- `zotero-write-unverified`：工具调用成功但重新查询未确认结果。
 - 403、429、验证码、访问警告或异常登录：立即停止该来源并报告。
 - 没有 DOI：保留题名，交给人工或浏览器发现，不编造标识符。
 - 只有受限全文：生成浏览器接管或人工处理队列。
@@ -158,3 +190,4 @@ acquisition/
 - 需要用户授权浏览器处理的记录；
 - 因平台限制停止的记录。
 - 已成功关联进 Zotero 的记录与仅生成交接任务的记录。
+- 浏览器或 Zotero 执行器已经实际验证的记录与仅通过模拟服务测试的能力。

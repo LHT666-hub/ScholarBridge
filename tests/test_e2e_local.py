@@ -74,6 +74,24 @@ class E2ETests(unittest.TestCase):
                     row = next(csv.DictReader(handle))
                 self.assertEqual(row["status"], "downloaded")
                 self.assertTrue(Path(row["pdf_path"]).exists())
+
+                resumed = run(
+                    input_path,
+                    root / "output",
+                    execute=True,
+                    email="",
+                    provider_names=["direct"],
+                    openalex_api_key="",
+                    core_api_key="",
+                    max_records=10,
+                    max_mb=5,
+                    timeout=5,
+                    delay=0,
+                    allow_private=True,
+                    resume=True,
+                )
+                self.assertEqual(resumed["resumed"], 1)
+                self.assertEqual(resumed["unresolved"], 0)
             server.shutdown()
 
 

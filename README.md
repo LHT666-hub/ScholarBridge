@@ -99,7 +99,9 @@ ScholarBridge 当前优先采用前两种方案，不把 Cookie 写入项目。�
 ### 3. 授权下载交接
 
 - 为 CNKI、万方、维普、出版社等生成结构化下载队列；
-- 输出供浏览器 Agent 或用户执行的 `browser-handoff.md`；
+- 通过 Kimi WebBridge 打开用户的真实 Chrome；
+- 根据页面语义树寻找检索、结果和原生 PDF 下载控件；
+- 监听下载目录，并将成功、登录缺失、验证码和人工接管状态写回队列；
 - 接管浏览器下载目录；
 - 拒绝 `.crdownload`、`.part` 和 HTML 伪装的 PDF；
 - 将有效文件与原始题录重新匹配。
@@ -115,8 +117,9 @@ ScholarBridge 当前优先采用前两种方案，不把 Cookie 写入项目。�
 
 - 为有效 PDF 生成 `zotero-handoff.jsonl`；
 - 优先按 DOI 和题名查询现有 Zotero 条目；
-- 已有条目关联附件，新文献再创建条目；
-- 当前环境没有 Zotero 写入工具时，只报告“已生成交接任务”，不冒充已经入库。
+- 通过 Streamable HTTP MCP 自动发现 Zotero 工具；
+- 已有条目关联附件，新文献再从本地 PDF 创建；
+- 写入后重新查询，区分已验证、写入未验证和失败。
 
 ## 当前完成度
 
@@ -127,19 +130,20 @@ ScholarBridge 已经是可运行的基础工作流，但还不是覆盖所有平
 | 记录规范化与去重 | 已实现 | 常见题录格式已有自动测试 |
 | 开放全文获取 | 基本可用 | PMC、DOAJ、直接 PDF 等路线已验证 |
 | PDF 校验与审计 | 已实现 | 包括残缺文件、伪 PDF 和哈希去重 |
-| 授权下载任务与目录接管 | 已实现基础设施 | 已能生成队列并接管浏览器下载结果 |
-| 平台专项自动操作 | 持续扩充 | 尚未覆盖所有数据库的分页、选择器和下载按钮 |
+| Kimi WebBridge 浏览器执行 | 已实现通用执行器 | 模拟服务测试通过；真实 Chrome 扩展连接仍需环境实测 |
+| 授权下载任务与目录接管 | 已实现 | 已能生成队列、监听下载并接管浏览器结果 |
+| 平台专项自动操作 | 持续扩充 | 语义化通用控件已实现；平台分页和专项回归仍待补充 |
 | Zotero 任务生成 | 已实现 | 能生成查重、创建和附件关联任务 |
-| Zotero 实际写入 | 依赖运行环境 | 需要 Zotero Desktop、Connector 或 Zotero MCP |
+| Zotero MCP 执行 | 已实现通用执行器 | 模拟 MCP 测试通过；需要在真实 Zotero 插件上校准工具 schema |
 
 按端到端能力保守估计：
 
 - 开放全文路线：约 **80%**；
-- 通用授权数据库路线：约 **40%**；
-- Zotero 闭环：约 **50%**；
-- 整体完成度：约 **55%–60%**。
+- 通用授权数据库路线：已进入可执行后端阶段，平台覆盖仍不足；
+- Zotero 闭环：已从任务生成推进到 MCP 执行与写后验证；
+- 整体仍属于 **Alpha**，不能宣称所有数据库已经跑通。
 
-这里的比例表示真实可执行能力，不以 README 长度、支持列表数量或代码行数计算。
+成熟度以“代码实现、真实环境验证、平台覆盖”三项分别判断，不再用单一百分比代替。
 
 ## 开发规划
 
@@ -155,8 +159,11 @@ ScholarBridge 已经是可运行的基础工作流，但还不是覆盖所有平
 
 - [x] 授权数据库任务队列；
 - [x] 已登录浏览器交接说明；
+- [x] Kimi WebBridge 通用执行器；
+- [x] 浏览器下载监听和状态回写；
 - [x] 下载目录接管与文件匹配；
 - [x] Zotero 查重和附件任务生成；
+- [x] 通用 Zotero MCP HTTP 执行器；
 - [ ] 在真实 Zotero 环境完成稳定的端到端回归测试。
 
 ### 阶段三：平台专项适配
@@ -214,6 +221,7 @@ python scripts/fetch_open_pdfs.py \
   --output-dir literature_run/acquisition \
   --email researcher@example.edu \
   --max-records 100 \
+  --resume \
   --execute
 ```
 
@@ -226,11 +234,22 @@ python scripts/prepare_authorized_queue.py \
 ```
 
 根据生成的 `browser-handoff.md`，在用户已经登录的可见浏览器中使用平台原生
-下载功能。下载完成后接管并验证文件：
+下载功能。也可以让 ScholarBridge 通过 Kimi WebBridge 执行有界任务：
+
+```bash
+python scripts/run_authorized_browser.py \
+  literature_run/authorized/authorized-queue.jsonl \
+  --download-dir ~/Downloads \
+  --output-dir literature_run/browser \
+  --max-records 10 \
+  --execute
+```
+
+下载完成后接管并验证文件：
 
 ```bash
 python scripts/ingest_downloads.py \
-  literature_run/authorized/authorized-queue.jsonl \
+  literature_run/browser/authorized-queue.browser.jsonl \
   --download-dir ~/Downloads \
   --output-dir literature_run/authorized-ingest
 ```
@@ -245,7 +264,16 @@ python scripts/build_zotero_handoff.py \
 ```
 
 Agent 读取 `zotero-handoff.jsonl` 后，通过可用的 Zotero 工具执行查重、创建条目
-或关联附件。
+或关联附件。Zotero MCP 使用 Streamable HTTP 时，可以直接执行并验证：
+
+```bash
+python scripts/execute_zotero_handoff.py \
+  literature_run/zotero/zotero-handoff.jsonl \
+  --output-dir literature_run/zotero-executed \
+  --url http://127.0.0.1:23120/mcp \
+  --max-tasks 20 \
+  --execute
+```
 
 ## 输出结构
 
@@ -262,10 +290,13 @@ literature_run/
 ├── authorized/
 │   ├── authorized-queue.jsonl
 │   └── browser-handoff.md
+├── browser/
+│   └── authorized-queue.browser.jsonl
 ├── authorized-ingest/
 │   └── ingest-manifest.csv
 └── zotero/
-    └── zotero-handoff.jsonl
+    ├── zotero-handoff.jsonl
+    └── zotero-handoff.executed.jsonl
 ```
 
 主要状态包括：

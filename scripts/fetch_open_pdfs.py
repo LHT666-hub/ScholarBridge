@@ -241,6 +241,27 @@ def _write_manifest(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def _load_resumable_manifest(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    completed: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row.get("status") not in {"downloaded", "duplicate"}:
+            continue
+        pdf_path = Path(str(row.get("pdf_path") or ""))
+        if not pdf_path.is_file():
+            continue
+        check = validate_pdf(pdf_path)
+        if not check["valid"]:
+            continue
+        row["sha256"] = check["sha256"]
+        row["pdf_path"] = str(pdf_path)
+        completed[str(row.get("record_id") or "")] = row
+    return completed
+
+
 def _write_report(path: Path, rows: list[dict[str, Any]], provider_names: list[str]) -> None:
     counts: dict[str, int] = {}
     for row in rows:
@@ -288,6 +309,7 @@ def run(
     timeout: int,
     delay: float,
     allow_private: bool,
+    resume: bool = False,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     pdf_dir = output_dir / "pdf"
@@ -298,6 +320,12 @@ def run(
     manifest: list[dict[str, Any]] = []
     attempt_log: list[dict[str, Any]] = []
     plan_rows: list[dict[str, Any]] = []
+    resumable = (
+        _load_resumable_manifest(output_dir / "manifest.csv")
+        if resume and execute
+        else {}
+    )
+    resumed = 0
     known_hashes: dict[str, Path] = {}
     for existing in pdf_dir.glob("*.pdf"):
         check = validate_pdf(existing)
@@ -305,6 +333,22 @@ def run(
             known_hashes[check["sha256"]] = existing
 
     for record in records:
+        previous = resumable.get(record.record_id)
+        if previous:
+            previous = dict(previous)
+            previous["attempt_count"] = 0
+            previous["reason"] = "resumed from validated existing manifest"
+            manifest.append(previous)
+            plan_rows.append(
+                {
+                    "record": record.to_dict(),
+                    "identifier_resolution": {"status": "resumed"},
+                    "candidates": [],
+                    "discovery_errors": [],
+                }
+            )
+            resumed += 1
+            continue
         resolution: dict[str, Any] = {}
         if (
             not record.doi
@@ -448,6 +492,7 @@ def run(
         "downloaded": sum(row["status"] == "downloaded" for row in manifest),
         "duplicates": sum(row["status"] == "duplicate" for row in manifest),
         "unresolved": sum(row["status"] not in {"downloaded", "duplicate"} for row in manifest),
+        "resumed": resumed,
         "execute": execute,
         "output_dir": str(output_dir),
     }
@@ -479,6 +524,11 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=45)
     parser.add_argument("--delay", type=float, default=1.0)
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse validated downloaded/duplicate rows from an existing manifest.",
+    )
+    parser.add_argument(
         "--allow-private",
         action="store_true",
         help="Allow localhost/private URLs (intended only for controlled tests)",
@@ -503,6 +553,7 @@ def main() -> int:
         timeout=args.timeout,
         delay=args.delay,
         allow_private=args.allow_private,
+        resume=args.resume,
     )
     print(json.dumps(summary, ensure_ascii=False))
     return 0 if (not args.execute or summary["unresolved"] == 0) else 2

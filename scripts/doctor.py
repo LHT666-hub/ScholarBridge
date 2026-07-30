@@ -9,6 +9,7 @@ import os
 import platform
 import shutil
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,6 +22,32 @@ def _port_open(host: str, port: int, timeout: float = 0.3) -> bool:
             return True
     except OSError:
         return False
+
+
+def _webbridge_status(home: Path) -> dict[str, object]:
+    executable = (
+        home / ".kimi-webbridge" / "bin" / "kimi-webbridge.exe"
+        if os.name == "nt"
+        else home / ".kimi-webbridge" / "bin" / "kimi-webbridge"
+    )
+    if not executable.exists():
+        return {"installed": False}
+    try:
+        completed = subprocess.run(
+            [str(executable), "status"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        parsed = json.loads(completed.stdout) if completed.stdout.strip() else {}
+        return {
+            "installed": True,
+            "command_ok": completed.returncode == 0,
+            **(parsed if isinstance(parsed, dict) else {}),
+        }
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+        return {"installed": True, "command_ok": False, "error": str(exc)}
 
 
 def run(online: bool) -> dict[str, object]:
@@ -40,6 +67,7 @@ def run(online: bool) -> dict[str, object]:
                 home / ".claude" / "skills" / "kimi-webbridge" / "SKILL.md"
             ).exists(),
             "kimi_webbridge_daemon_10086": _port_open("127.0.0.1", 10086),
+            "kimi_webbridge_status": _webbridge_status(home),
             "cnki_mcp_command": bool(shutil.which("cnki-mcp")),
         },
         "zotero": {

@@ -46,3 +46,25 @@ Each line records one actual candidate attempt:
   "error": ""
 }
 ```
+
+## `authorized-queue.browser.jsonl`
+
+`run_authorized_browser.py` adds browser execution fields to each authorized queue row:
+
+| Field | Meaning |
+|---|---|
+| `state` | Browser result such as `browser-download-complete`, `needs-user-authentication`, `needs-manual-browser-step`, `download-clicked-no-file`, or `stopped-platform-warning` |
+| `downloaded_filename` | Completed PDF filename observed in the browser download directory |
+| `browser_error` | Concrete stop or failure reason |
+| `snapshot_excerpt` | Bounded accessibility-tree excerpt when a manual step is needed |
+
+## `zotero-handoff.executed.jsonl`
+
+`execute_zotero_handoff.py` adds:
+
+| Field | Meaning |
+|---|---|
+| `state` | `zotero-complete`, `zotero-write-unverified`, `zotero-failed`, or `zotero-dry-run` |
+| `zotero_operation` | `attached-to-existing` or `created-from-file` |
+| `zotero_item_key` | Item key found after the write |
+| `zotero_error` | MCP transport, schema mapping, tool, or verification failure |
