@@ -11,6 +11,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import importlib.util
 from pathlib import Path
 
 from common import request_bytes
@@ -69,6 +70,24 @@ def run(online: bool) -> dict[str, object]:
             "kimi_webbridge_daemon_10086": _port_open("127.0.0.1", 10086),
             "kimi_webbridge_status": _webbridge_status(home),
             "cnki_mcp_command": bool(shutil.which("cnki-mcp")),
+            "python_playwright_installed": (
+                importlib.util.find_spec("playwright") is not None
+            ),
+            "chrome_executable": next(
+                (
+                    str(path)
+                    for path in (
+                        Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
+                        / "Google/Chrome/Application/chrome.exe",
+                        Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)"))
+                        / "Google/Chrome/Application/chrome.exe",
+                        Path(os.environ.get("LOCALAPPDATA", ""))
+                        / "Google/Chrome/Application/chrome.exe",
+                    )
+                    if path.is_file()
+                ),
+                "",
+            ),
         },
         "zotero": {
             "desktop_connector_23119": _port_open("127.0.0.1", 23119),

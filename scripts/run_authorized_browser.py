@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute bounded authorized-download tasks through Kimi WebBridge."""
+"""Execute bounded authorized downloads through a selected browser backend."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from browser_backend import BrowserBackend, BrowserBackendError
 from common import read_jsonl, write_jsonl
+from playwright_persistent_client import PlaywrightPersistentClient
 from webbridge_client import (
     WebBridgeClient,
-    WebBridgeError,
     daemon_ready,
     start_local_daemon,
 )
@@ -141,12 +142,12 @@ def _wait_for_pdf(
 
 
 def _select_new_tab(
-    client: WebBridgeClient,
+    client: BrowserBackend,
     before_urls: set[str],
 ) -> None:
     try:
         response = client.list_tabs()
-    except WebBridgeError:
+    except BrowserBackendError:
         return
     tabs = response.get("tabs", [])
     if not isinstance(tabs, list):
@@ -158,13 +159,13 @@ def _select_new_tab(
         if url and url not in before_urls:
             try:
                 client.find_tab(url)
-            except WebBridgeError:
+            except BrowserBackendError:
                 pass
             return
 
 
 def _search_to_article(
-    client: WebBridgeClient,
+    client: BrowserBackend,
     tree: str,
     title: str,
     *,
@@ -213,7 +214,7 @@ def _search_to_article(
 def execute_row(
     row: dict[str, Any],
     *,
-    client: WebBridgeClient,
+    client: BrowserBackend,
     download_dir: Path,
     download_timeout: int,
     settle_seconds: float,
@@ -282,12 +283,17 @@ def execute_row(
             return updated
 
         before = _download_state(download_dir)
-        client.click(download_ref)
-        downloaded = _wait_for_pdf(
-            download_dir,
-            before,
+        downloaded = client.click_download(
+            download_ref,
+            download_dir=download_dir,
             timeout=download_timeout,
         )
+        if downloaded is None:
+            downloaded = _wait_for_pdf(
+                download_dir,
+                before,
+                timeout=download_timeout,
+            )
         if downloaded is None:
             updated["state"] = "download-clicked-no-file"
             updated["browser_error"] = (
@@ -299,7 +305,7 @@ def execute_row(
         updated["downloaded_filename"] = downloaded.name
         updated["browser_error"] = ""
         return updated
-    except WebBridgeError as exc:
+    except BrowserBackendError as exc:
         updated["state"] = "browser-error"
         updated["browser_error"] = str(exc)
         return updated
@@ -311,8 +317,12 @@ def run(
     output_dir: Path,
     *,
     execute: bool,
+    backend: str,
     base_url: str,
     session: str,
+    profile_dir: Path,
+    chrome_executable: Path | None,
+    headless: bool,
     max_records: int,
     download_timeout: int,
     settle_seconds: float,
@@ -333,31 +343,51 @@ def run(
             for row in selected
         ] + remainder
     else:
-        if base_url == "http://127.0.0.1:10086" and not daemon_ready():
-            if not start_daemon or not start_local_daemon():
-                raise WebBridgeError(
-                    "Kimi WebBridge daemon is not reachable on 127.0.0.1:10086"
-                )
-            for _ in range(20):
-                if daemon_ready():
-                    break
-                time.sleep(0.25)
-        client = WebBridgeClient(base_url=base_url, session=session)
-        updated = []
-        for index, row in enumerate(selected):
-            result = execute_row(
-                row,
-                client=client,
-                download_dir=download_dir,
-                download_timeout=download_timeout,
-                settle_seconds=settle_seconds,
-                first_navigation=index == 0,
+        if backend == "webbridge":
+            if base_url == "http://127.0.0.1:10086" and not daemon_ready():
+                if not start_daemon or not start_local_daemon():
+                    raise BrowserBackendError(
+                        "Kimi WebBridge daemon is not reachable on "
+                        "127.0.0.1:10086"
+                    )
+                for _ in range(20):
+                    if daemon_ready():
+                        break
+                    time.sleep(0.25)
+            client: BrowserBackend = WebBridgeClient(
+                base_url=base_url,
+                session=session,
             )
-            updated.append(result)
-            if result["state"] == "stopped-platform-warning":
-                updated.extend(selected[index + 1 :])
-                break
-        updated.extend(remainder)
+        elif backend == "playwright":
+            client = PlaywrightPersistentClient(
+                profile_dir=profile_dir,
+                download_dir=download_dir,
+                chrome_executable=chrome_executable,
+                headless=headless,
+                timeout=max(download_timeout, 30),
+            )
+        else:
+            raise BrowserBackendError(f"unsupported browser backend: {backend}")
+
+        updated = []
+        try:
+            for index, row in enumerate(selected):
+                result = execute_row(
+                    row,
+                    client=client,
+                    download_dir=download_dir,
+                    download_timeout=download_timeout,
+                    settle_seconds=settle_seconds,
+                    first_navigation=index == 0,
+                )
+                result["browser_backend"] = backend
+                updated.append(result)
+                if result["state"] == "stopped-platform-warning":
+                    updated.extend(selected[index + 1 :])
+                    break
+            updated.extend(remainder)
+        finally:
+            client.close()
 
     output = output_dir / "authorized-queue.browser.jsonl"
     write_jsonl(output, updated)
@@ -368,6 +398,7 @@ def run(
     summary = {
         "records": len(updated),
         "execute": execute,
+        "backend": backend,
         "states": counts,
         "output": str(output),
         "session": session,
@@ -385,8 +416,34 @@ def main() -> int:
     parser.add_argument("--download-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument(
+        "--backend",
+        choices=("webbridge", "playwright"),
+        default="webbridge",
+        help=(
+            "webbridge reuses an already logged-in Chrome; playwright uses a "
+            "dedicated persistent profile prepared by prepare_browser_profile.py"
+        ),
+    )
     parser.add_argument("--webbridge-url", default="http://127.0.0.1:10086")
     parser.add_argument("--session", default="scholarbridge-authorized")
+    parser.add_argument(
+        "--profile-dir",
+        type=Path,
+        default=Path.home()
+        / ".scholarbridge"
+        / "browser-profiles"
+        / "authorized-default",
+    )
+    parser.add_argument("--chrome-executable", type=Path)
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help=(
+            "Run Playwright without a visible window. Intended for local tests; "
+            "authorized database workflows should remain visible."
+        ),
+    )
     parser.add_argument("--max-records", type=int, default=10)
     parser.add_argument("--download-timeout", type=int, default=60)
     parser.add_argument("--settle-seconds", type=float, default=1.5)
@@ -401,8 +458,12 @@ def main() -> int:
         args.download_dir,
         args.output_dir,
         execute=args.execute,
+        backend=args.backend,
         base_url=args.webbridge_url,
         session=args.session,
+        profile_dir=args.profile_dir,
+        chrome_executable=args.chrome_executable,
+        headless=args.headless,
         max_records=args.max_records,
         download_timeout=args.download_timeout,
         settle_seconds=args.settle_seconds,

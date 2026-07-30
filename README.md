@@ -68,14 +68,18 @@ flowchart LR
 ScholarBridge 不接收账号密码，也不伪造登录。现有项目维持数据库登录态主要有
 三种技术方案：
 
-| 方案 | 技术原理 | 代表实现 | 优点 | 局限 |
+| 方案 | 技术原理 | ScholarBridge 状态 | 优点 | 局限 |
 |---|---|---|---|---|
-| 复用真实浏览器 | 连接用户已经登录的 Chrome；Cookie、SSO 和 localStorage 留在原浏览器 | Kimi WebBridge、Playwright MCP 浏览器扩展 | 兼容 CARSI、WebVPN、扫码和人工验证码，不复制凭据 | 依赖本地浏览器与扩展，页面改版后操作可能失效 |
-| 独立持久化浏览器 | Playwright 使用专用 `user-data-dir`；首次由用户手动登录，后续复用浏览器 profile | `wuruiqi/cnki-mcp` | 容易监听分页、按钮和原生下载事件，适合平台专项流程 | profile 属于敏感数据，选择器需要持续维护 |
-| Cookie 文件恢复 | 导出指定域名 Cookie，下次注入新的浏览器上下文 | 部分数据库自动化项目 | 重启后恢复方便 | Cookie 等同临时凭据，存在泄露、过期和账号风险 |
+| 复用真实浏览器 | 通过 Kimi WebBridge 连接用户已经登录的 Chrome；Cookie、SSO 和 localStorage 留在原浏览器 | `--backend webbridge` 已实现；本地模拟服务已回归 | 兼容 CARSI、WebVPN、扫码和人工验证码，不复制凭据 | 依赖本地守护进程与扩展；真实数据库仍需逐站实测 |
+| 独立持久化浏览器 | Playwright 使用专用 `user-data-dir`；首次由用户手动登录，后续复用该 profile | `--backend playwright` 已实现；登录跨重启与 PDF 下载已用本地站点实测 | 不依赖 Kimi；能直接捕获原生下载事件，适合平台专项流程 | profile 是敏感目录；纯会话 Cookie 过期或浏览器关闭后可能要求重新登录 |
+| Cookie 文件恢复 | 导出指定域名 Cookie，下次注入新的浏览器上下文 | 仅研究，不实现、不推荐 | 重启后恢复方便 | Cookie 等同临时凭据，存在泄露、过期和账号风险 |
 
-ScholarBridge 当前优先采用前两种方案，不把 Cookie 写入项目。验证码、授权确认、
-访问警告和平台下载限制仍由用户处理。
+这里的“两种已实现后端”不是同一件事：
+
+- `webbridge` 使用你日常 Chrome 中已经存在的登录态；
+- `playwright` 打开 ScholarBridge 自己的专用 Chrome profile，由你第一次手动登录；
+- 两者都只负责浏览器操作，队列、停止规则、PDF 校验和 Zotero 交接共用同一套代码；
+- 验证码、授权确认、访问警告和平台下载限制始终由用户处理。
 
 详细实现、参考仓库和各路线的局限见
 [`references/acquisition-routes.md`](references/acquisition-routes.md)。
@@ -99,8 +103,10 @@ ScholarBridge 当前优先采用前两种方案，不把 Cookie 写入项目。�
 ### 3. 授权下载交接
 
 - 为 CNKI、万方、维普、出版社等生成结构化下载队列；
-- 通过 Kimi WebBridge 打开用户的真实 Chrome；
+- 可选择 Kimi WebBridge 复用真实 Chrome；
+- 可选择 Playwright 打开独立持久化 Chrome profile；
 - 根据页面语义树寻找检索、结果和原生 PDF 下载控件；
+- Playwright 后端直接捕获浏览器原生下载事件；
 - 监听下载目录，并将成功、登录缺失、验证码和人工接管状态写回队列；
 - 接管浏览器下载目录；
 - 拒绝 `.crdownload`、`.part` 和 HTML 伪装的 PDF；
@@ -131,6 +137,7 @@ ScholarBridge 已经是可运行的基础工作流，但还不是覆盖所有平
 | 开放全文获取 | 基本可用 | PMC、DOAJ、直接 PDF 等路线已验证 |
 | PDF 校验与审计 | 已实现 | 包括残缺文件、伪 PDF 和哈希去重 |
 | Kimi WebBridge 浏览器执行 | 已实现通用执行器 | 模拟服务测试通过；真实 Chrome 扩展连接仍需环境实测 |
+| Playwright 持久化浏览器执行 | 已实现通用执行器 | 本地真实 Chrome 已验证登录跨重启和原生 PDF 下载；各授权数据库仍需登录实测 |
 | 授权下载任务与目录接管 | 已实现 | 已能生成队列、监听下载并接管浏览器结果 |
 | 平台专项自动操作 | 持续扩充 | 语义化通用控件已实现；平台分页和专项回归仍待补充 |
 | Zotero 任务生成 | 已实现 | 能生成查重、创建和附件关联任务 |
@@ -160,6 +167,8 @@ ScholarBridge 已经是可运行的基础工作流，但还不是覆盖所有平
 - [x] 授权数据库任务队列；
 - [x] 已登录浏览器交接说明；
 - [x] Kimi WebBridge 通用执行器；
+- [x] Playwright 独立持久化浏览器执行器；
+- [x] 专用 profile 的人工登录准备命令；
 - [x] 浏览器下载监听和状态回写；
 - [x] 下载目录接管与文件匹配；
 - [x] Zotero 查重和附件任务生成；
@@ -182,18 +191,21 @@ ScholarBridge 已经是可运行的基础工作流，但还不是覆盖所有平
 
 ## 快速开始
 
-要求 Python 3.10 或更高版本，无第三方 Python 依赖。
+要求 Python 3.10 或更高版本。开放全文、文件校验和 WebBridge 路线只使用标准库；
+选择 Playwright 后端时额外安装：
 
 ```bash
 git clone https://github.com/LHT666-hub/ScholarBridge.git
 cd ScholarBridge
+python -m pip install playwright
 python scripts/doctor.py
 python -m unittest discover -s tests -v
 ```
 
-`doctor.py` 检查 Python、开放来源配置、Kimi WebBridge、可选的 `cnki-mcp`、
-Zotero Desktop Connector 和 Zotero MCP。某个端口未监听通常只表示相关桌面程序
-没有启动。
+Playwright 后端直接调用电脑已有的 Google Chrome，通常不需要再执行
+`playwright install chromium`。`doctor.py` 会分别检查 Chrome、Python Playwright、
+Kimi WebBridge、可选的 `cnki-mcp`、Zotero Desktop Connector 和 Zotero MCP。
+某个端口未监听通常只表示相关桌面程序没有启动。
 
 ### 1. 规范化题录
 
@@ -234,16 +246,45 @@ python scripts/prepare_authorized_queue.py \
 ```
 
 根据生成的 `browser-handoff.md`，在用户已经登录的可见浏览器中使用平台原生
-下载功能。也可以让 ScholarBridge 通过 Kimi WebBridge 执行有界任务：
+下载功能。可从下面两个后端中任选一个。
+
+#### 后端 A：复用现有 Chrome（Kimi WebBridge）
 
 ```bash
 python scripts/run_authorized_browser.py \
   literature_run/authorized/authorized-queue.jsonl \
+  --backend webbridge \
   --download-dir ~/Downloads \
   --output-dir literature_run/browser \
   --max-records 10 \
   --execute
 ```
+
+#### 后端 B：独立持久化 Chrome（Playwright）
+
+第一次先打开专用 profile，由用户本人完成 CARSI、WebVPN、扫码或账号登录：
+
+```bash
+python scripts/prepare_browser_profile.py \
+  --profile-dir ~/.scholarbridge/browser-profiles/cnki \
+  --url https://www.cnki.net/
+```
+
+确认页面能正常访问后回到终端按 Enter。后续运行：
+
+```bash
+python scripts/run_authorized_browser.py \
+  literature_run/authorized/authorized-queue.jsonl \
+  --backend playwright \
+  --profile-dir ~/.scholarbridge/browser-profiles/cnki \
+  --download-dir ~/Downloads \
+  --output-dir literature_run/browser \
+  --max-records 10 \
+  --execute
+```
+
+profile 只保存在用户目录，不进入仓库。带有效期的 Cookie 和 localStorage 可以跨
+重启复用；纯会话 Cookie、失效的 SSO 或平台主动登出仍会要求用户再次登录。
 
 下载完成后接管并验证文件：
 
