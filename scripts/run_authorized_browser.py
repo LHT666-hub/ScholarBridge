@@ -13,6 +13,7 @@ from typing import Any
 from browser_backend import BrowserBackend, BrowserBackendError
 from common import read_jsonl, write_jsonl
 from playwright_persistent_client import PlaywrightPersistentClient
+from platform_adapters import PlatformAdapter, get_platform_adapter
 from webbridge_client import (
     WebBridgeClient,
     daemon_ready,
@@ -164,31 +165,70 @@ def _select_new_tab(
             return
 
 
+def _wait_for_page_change(
+    client: BrowserBackend,
+    before_tree: str,
+    *,
+    settle_seconds: float,
+    max_wait: float = 15.0,
+) -> str:
+    """Allow slow database SPAs to finish without a fixed long sleep."""
+    # Database SPAs often update a spinner immediately but need several seconds
+    # before result links exist. Give them a bounded minimum settling window.
+    time.sleep(max(6.0, settle_seconds))
+    deadline = time.monotonic() + max(0.0, max_wait - max(6.0, settle_seconds))
+    latest = _tree(client.snapshot())
+    while time.monotonic() < deadline:
+        time.sleep(max(0.25, min(1.0, settle_seconds)))
+        latest = _tree(client.snapshot())
+        if latest != before_tree:
+            return latest
+    return latest
+
+
 def _search_to_article(
     client: BrowserBackend,
     tree: str,
     title: str,
     *,
+    adapter: PlatformAdapter | None,
     settle_seconds: float,
 ) -> tuple[str, str]:
+    input_terms = (
+        (adapter.search_input_terms + SEARCH_INPUT_TERMS)
+        if adapter
+        else SEARCH_INPUT_TERMS
+    )
+    input_roles = adapter.search_input_roles if adapter else (
+        "textbox",
+        "input",
+        "searchbox",
+        "combobox",
+    )
     input_ref = _choose_ref(
         tree,
-        SEARCH_INPUT_TERMS,
-        role_terms=("textbox", "input", "searchbox"),
+        input_terms,
+        role_terms=input_roles,
     )
     if not input_ref:
         return tree, "search-input-not-found"
     client.fill(input_ref, title)
+    button_terms = (
+        adapter.search_button_terms if adapter else SEARCH_BUTTON_TERMS
+    )
     button_ref = _choose_ref(
         tree,
-        SEARCH_BUTTON_TERMS,
+        button_terms,
         role_terms=("button", "link"),
     )
     if not button_ref:
         return tree, "search-button-not-found"
     client.click(button_ref)
-    time.sleep(settle_seconds)
-    results = _tree(client.snapshot())
+    results = _wait_for_page_change(
+        client,
+        tree,
+        settle_seconds=settle_seconds,
+    )
     title_terms = tuple(
         part for part in re.split(r"[\s:：，,。.!！?？()（）\[\]]+", title.casefold()) if len(part) >= 3
     )
@@ -221,6 +261,15 @@ def execute_row(
     first_navigation: bool,
 ) -> dict[str, Any]:
     updated = dict(row)
+    platform = str(row.get("platform") or "")
+    adapter = get_platform_adapter(platform)
+    if adapter and adapter.role == "licensed-index":
+        updated["state"] = "discovery-export-only"
+        updated["browser_error"] = (
+            "This platform is a licensed discovery index, not the final PDF "
+            "host. Export DOI/metadata and route it to the publisher or OA resolver."
+        )
+        return updated
     url = str(row.get("start_url") or "")
     if not url:
         updated["state"] = "needs-identifier-or-url"
@@ -239,9 +288,14 @@ def execute_row(
             updated["browser_error"] = "platform warning or CAPTCHA detected"
             return updated
 
+        download_terms = (
+            (adapter.download_terms + DOWNLOAD_TERMS)
+            if adapter
+            else DOWNLOAD_TERMS
+        )
         download_ref = _choose_ref(
             tree,
-            DOWNLOAD_TERMS,
+            download_terms,
             excludes=EXCLUDE_DOWNLOAD_TERMS,
             role_terms=("link", "button"),
         )
@@ -250,6 +304,7 @@ def execute_row(
                 client,
                 tree,
                 str(row["title"]),
+                adapter=adapter,
                 settle_seconds=settle_seconds,
             )
             if search_error:
@@ -267,7 +322,7 @@ def execute_row(
                 return updated
             download_ref = _choose_ref(
                 tree,
-                DOWNLOAD_TERMS,
+                download_terms,
                 excludes=EXCLUDE_DOWNLOAD_TERMS,
                 role_terms=("link", "button"),
             )

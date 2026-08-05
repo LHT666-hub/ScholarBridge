@@ -13,12 +13,33 @@ sys.path.insert(0, str(SCRIPTS))
 from build_zotero_handoff import run as build_zotero_handoff  # noqa: E402
 from ingest_downloads import run as ingest_downloads  # noqa: E402
 from prepare_authorized_queue import run as prepare_queue  # noqa: E402
+from prepare_authorized_queue import queue_row  # noqa: E402
+from common import Record  # noqa: E402
 
 
 PDF = b"%PDF-1.4\n" + (b"0" * 700) + b"\n%%EOF\n"
 
 
 class AuthorizedPipelineTests(unittest.TestCase):
+    def test_licensed_indexes_are_discovery_routes_not_pdf_hosts(self) -> None:
+        for source, url, platform in (
+            ("Web of Science", "https://www.webofscience.com/", "web-of-science"),
+            ("Scopus", "https://www.scopus.com/pages/home", "scopus"),
+        ):
+            with self.subTest(platform=platform):
+                row = queue_row(
+                    Record(
+                        record_id=f"id-{platform}",
+                        title="Example article",
+                        url=url,
+                        source=source,
+                    )
+                )
+                self.assertEqual(row["platform"], platform)
+                self.assertEqual(row["state"], "discovery-export-only")
+                self.assertEqual(row["route"], "licensed-discovery")
+                self.assertEqual(row["access_class"], "licensed-index")
+
     def test_cnki_queue_download_ingest_and_zotero_handoff(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -139,6 +139,22 @@ class PlaywrightPersistentClient:
                 "status": response.status if response else None,
             }
         except Exception as exc:
+            # Some database home pages keep analytics or application requests
+            # open long enough for Playwright's DOMContentLoaded wait to time
+            # out even though the usable document is already present. Treat
+            # that as a soft timeout only when a real page and body exist.
+            if "Timeout" in type(exc).__name__ or "Timeout" in str(exc):
+                try:
+                    page = self._active_page()
+                    body = page.locator("body").inner_text(timeout=2000)
+                    if page.url not in ("", "about:blank") and body.strip():
+                        return {
+                            "url": page.url,
+                            "status": None,
+                            "warning": "navigation-timeout-page-usable",
+                        }
+                except Exception:
+                    pass
             raise PlaywrightPersistentError(f"navigate failed: {exc}") from exc
 
     def snapshot(self) -> dict[str, Any]:

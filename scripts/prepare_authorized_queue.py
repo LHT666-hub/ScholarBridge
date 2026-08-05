@@ -11,6 +11,7 @@ from typing import Any
 
 from common import Record, safe_filename, write_jsonl
 from normalize_records import normalize_file
+from platform_adapters import get_platform_adapter
 
 
 PLATFORM_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -67,13 +68,17 @@ def start_url(record: Record, platform: str) -> str:
         return record.url
     if record.doi:
         return f"https://doi.org/{urllib.parse.quote(record.doi, safe='/')}"
-    return HOME_URLS.get(platform, "")
+    adapter = get_platform_adapter(platform)
+    return adapter.home_url if adapter else HOME_URLS.get(platform, "")
 
 
 def queue_row(record: Record) -> dict[str, Any]:
     platform = detect_platform(record)
+    adapter = get_platform_adapter(platform)
     if platform == "google-scholar":
         state = "discovery-only"
+    elif adapter and adapter.role == "licensed-index":
+        state = "discovery-export-only"
     elif platform == "discovery-required":
         state = "identifier-or-url-required"
     else:
@@ -88,14 +93,23 @@ def queue_row(record: Record) -> dict[str, Any]:
         "year": record.year,
         "source": record.source,
         "platform": platform,
-        "route": "authorized-visible-browser",
-        "access_class": "authorized-subscription",
+        "route": (
+            "licensed-discovery"
+            if adapter and adapter.role == "licensed-index"
+            else "authorized-visible-browser"
+        ),
+        "access_class": (
+            "licensed-index"
+            if adapter and adapter.role == "licensed-index"
+            else "authorized-subscription"
+        ),
         "state": state,
         "start_url": start_url(record, platform),
         "target_filename": target,
         "downloaded_filename": "",
         "expected_format": "pdf",
-        "notes": "",
+        "preferred_backend": adapter.preferred_backend if adapter else "webbridge",
+        "notes": adapter.notes if adapter else "",
     }
 
 
