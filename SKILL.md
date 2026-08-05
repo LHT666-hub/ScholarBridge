@@ -15,13 +15,20 @@ description: 批量发现、下载、核验并归档学术 PDF，再交接到 Zo
 4. 获得用户明确下载请求后，加 `--execute` 获取开放 PDF。
 5. 对仍未获得全文且用户拥有正常访问权的记录，运行
    `scripts/prepare_authorized_queue.py`。
-6. 让用户选择 `webbridge` 或 `playwright` 后端，并亲自完成机构登录和 CAPTCHA；
+6. 第一次处理某个平台时，先运行 `scripts/probe_authorized_platforms.py`，只验证
+   页面与检索控件。读取 `references/platform-validation.md`，不得把页面可读或检索
+   成功表述为全文下载成功。Web of Science 与 Scopus 只用于发现/导出题录，取得
+   DOI 后重新路由到出版社或开放来源。
+7. 让用户选择适配器建议的 `webbridge` 或 `playwright` 后端，并亲自完成机构登录和 CAPTCHA；
    再运行 `scripts/run_authorized_browser.py --execute`，只操作可见的搜索、结果
    和原生 PDF 下载控件。遇到验证码、异常访问或平台警告立即停止。
-7. 使用浏览器执行后的队列运行 `scripts/ingest_downloads.py`，验证并归档下载文件。
-8. 运行 `scripts/build_zotero_handoff.py`；Zotero MCP 提供兼容工具时，再运行
-   `scripts/execute_zotero_handoff.py --execute` 完成查重、导入或附件关联并重新查询验证。
-9. 检查开放下载、浏览器执行、PDF 接管、Zotero 写入四段的状态和失败原因。
+8. 使用浏览器执行后的队列运行 `scripts/ingest_downloads.py`，验证并归档下载文件。
+9. 运行 `scripts/build_zotero_handoff.py`。先让 `scripts/execute_zotero_handoff.py`
+   发现 MCP 能力；若 MCP 只有读取工具，则使用
+   `scripts/execute_zotero_connector_handoff.py --execute`：MCP 负责查重，Zotero
+   Connector 只创建不存在的新条目并上传 PDF。已有条目没有附件写入工具时必须转
+   人工，不能通过重复创建条目来伪装成功。
+10. 检查开放下载、浏览器执行、PDF 接管、Zotero 写入四段的状态和失败原因。
 
 ## 快速命令
 
@@ -79,6 +86,14 @@ python scripts/run_authorized_browser.py `
   --execute
 ```
 
+首次处理平台时先做安全探测：
+
+```powershell
+python scripts/probe_authorized_platforms.py `
+  --output-dir literature_run/platform-probe `
+  --platform wanfang --platform cqvip --platform science-direct --platform ieee
+```
+
 ### 使用独立持久化 Chrome
 
 不依赖 Kimi WebBridge。首次由用户在专用 Playwright profile 中手动登录：
@@ -128,12 +143,21 @@ python scripts/execute_zotero_handoff.py `
   --execute
 ```
 
+当前 Zotero MCP 只有读取工具时：
+
+```powershell
+python scripts/execute_zotero_connector_handoff.py `
+  literature_run/zotero/zotero-handoff.jsonl `
+  --output-dir literature_run/zotero-connector `
+  --execute
+```
+
 `run_authorized_browser.py` 已实现 `webbridge` 与 `playwright` 两个后端，并用
 语义化页面树寻找控件。若页面结构无法可靠识别，保留
 `needs-manual-browser-step`，不要猜测选择器。前者复用日常 Chrome，后者复用
 ScholarBridge 专用 profile；两者都不是模拟账号登录。
 
-读取 [acquisition-routes.md](references/acquisition-routes.md) 了解各条技术路线、参考仓库、登录态实现及限制。
+读取 [acquisition-routes.md](references/acquisition-routes.md) 了解各条技术路线、参考仓库、登录态实现及限制；读取 [platform-validation.md](references/platform-validation.md) 了解逐平台的五级验收结果。
 
 ## 来源选择
 

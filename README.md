@@ -112,6 +112,10 @@ ScholarBridge 不接收账号密码，也不伪造登录。现有项目维持数
 - 拒绝 `.crdownload`、`.part` 和 HTML 伪装的 PDF；
 - 将有效文件与原始题录重新匹配。
 
+平台适配器目前覆盖 CNKI、万方、维普、ScienceDirect、Springer Nature、Wiley、
+IEEE Xplore、Web of Science、Scopus、ProQuest 和 EBSCO。适配器保存的是公开可见
+控件语义和平台角色，不保存账号、Cookie 或隐藏下载接口。
+
 ### 4. PDF 验证与审计
 
 - 检查 `%PDF-` 文件头、文件大小和 `%%EOF`；
@@ -125,6 +129,9 @@ ScholarBridge 不接收账号密码，也不伪造登录。现有项目维持数
 - 优先按 DOI 和题名查询现有 Zotero 条目；
 - 通过 Streamable HTTP MCP 自动发现 Zotero 工具；
 - 已有条目关联附件，新文献再从本地 PDF 创建；
+- 当 MCP 只有读取工具时，先用 MCP 查重，再用 Zotero 本机 Connector 的
+  `saveItems + saveAttachment` 创建新条目并上传 PDF；
+- 已有条目但没有写入工具时转人工关联，避免重复创建同一文献；
 - 写入后重新查询，区分已验证、写入未验证和失败。
 
 ## 当前完成度
@@ -139,18 +146,25 @@ ScholarBridge 已经是可运行的基础工作流，但还不是覆盖所有平
 | Kimi WebBridge 浏览器执行 | 已实现通用执行器 | 模拟服务测试通过；真实 Chrome 扩展连接仍需环境实测 |
 | Playwright 持久化浏览器执行 | 已实现通用执行器 | 本地真实 Chrome 已验证登录跨重启和原生 PDF 下载；各授权数据库仍需登录实测 |
 | 授权下载任务与目录接管 | 已实现 | 已能生成队列、监听下载并接管浏览器结果 |
-| 平台专项自动操作 | 持续扩充 | 语义化通用控件已实现；平台分页和专项回归仍待补充 |
+| 平台专项自动操作 | 已开始真实逐站验证 | 万方、维普、ScienceDirect、IEEE 已到检索结果页；其他平台状态见下表 |
 | Zotero 任务生成 | 已实现 | 能生成查重、创建和附件关联任务 |
-| Zotero MCP 执行 | 已实现通用执行器 | 模拟 MCP 测试通过；需要在真实 Zotero 插件上校准工具 schema |
+| Zotero MCP 执行 | 已连接真实环境 | 本机 1.8.6 提供 26 个读取工具，但没有创建/附件写入工具 |
+| Zotero Connector 写入 | 已实现并验证接口可达 | 两步创建新条目并上传 PDF 已用模拟服务回归；未向用户文库写入测试垃圾 |
 
-按端到端能力保守估计：
+### 授权平台真实验证状态（2026-08-05）
 
-- 开放全文路线：约 **80%**；
-- 通用授权数据库路线：已进入可执行后端阶段，平台覆盖仍不足；
-- Zotero 闭环：已从任务生成推进到 MCP 执行与写后验证；
-- 整体仍属于 **Alpha**，不能宣称所有数据库已经跑通。
+| 平台 | 已验证到哪一步 | 尚未完成 |
+|---|---|---|
+| 万方、维普、ScienceDirect、IEEE | 真实网页可读，关键词已实际提交到结果页 | 用户授权态、原生 PDF、Zotero 闭环 |
+| Web of Science、Scopus | 真实入口可读或到登录页 | 它们按索引处理：需导出 DOI 后路由到全文提供者 |
+| CNKI | 本机访问出现证书域名错误 | 需从用户日常 Chrome/机构入口排查后继续 |
+| Springer Nature | 独立浏览器返回 HTTP 406 | 改用 WebBridge 复用日常 Chrome |
+| Wiley | Cloudflare challenge / HTTP 403 | 由用户在真实 Chrome 完成人工验证 |
 
-成熟度以“代码实现、真实环境验证、平台覆盖”三项分别判断，不再用单一百分比代替。
+因此，当前可以诚实称为“开放全文基础链路 + 授权数据库通用执行器 + 第一批平台
+L2 检索适配”，不能称为“所有闭源数据库一键批量下载”。完整平台验收使用五级标准：
+页面可读、检索成功、授权态确认、PDF 校验通过、Zotero 回查成功。详见
+[`references/platform-validation.md`](references/platform-validation.md)。
 
 ## 开发规划
 
@@ -177,8 +191,10 @@ ScholarBridge 已经是可运行的基础工作流，但还不是覆盖所有平
 
 ### 阶段三：平台专项适配
 
-- [ ] 跑通知网的检索、分页、下载和 Zotero 闭环；
-- [ ] 增加万方、维普及常见出版社适配器；
+- [ ] 排除本机 CNKI 证书/机构入口问题后，跑通检索、下载和 Zotero 闭环；
+- [x] 增加万方、维普及常见出版社的语义适配器；
+- [x] 真实验证万方、维普、ScienceDirect、IEEE 的关键词检索；
+- [x] 将 Web of Science 与 Scopus 明确路由为“发现/导出 DOI”，不误当 PDF 主机；
 - [ ] 为页面改版建立选择器诊断与降级机制；
 - [ ] 记录不同机构登录方式下的兼容性。
 
@@ -206,6 +222,14 @@ Playwright 后端直接调用电脑已有的 Google Chrome，通常不需要再�
 `playwright install chromium`。`doctor.py` 会分别检查 Chrome、Python Playwright、
 Kimi WebBridge、可选的 `cnki-mcp`、Zotero Desktop Connector 和 Zotero MCP。
 某个端口未监听通常只表示相关桌面程序没有启动。
+
+在真实登录和下载前，可先运行只读平台探测：
+
+```powershell
+python scripts/probe_authorized_platforms.py `
+  --output-dir literature_run/platform-probe `
+  --platform wanfang --platform cqvip --platform science-direct --platform ieee
+```
 
 ### 1. 规范化题录
 
@@ -315,6 +339,23 @@ python scripts/execute_zotero_handoff.py \
   --max-tasks 20 \
   --execute
 ```
+
+如果摘要显示当前 MCP 没有 `create_item`、`attach_file` 等写入工具，使用本机
+Connector 路线。它会先通过 MCP 查重，只自动导入不存在的新条目：
+
+```powershell
+python scripts/execute_zotero_connector_handoff.py \
+  literature_run/zotero/zotero-handoff.jsonl \
+  --output-dir literature_run/zotero-connector \
+  --mcp-url http://127.0.0.1:23120/mcp \
+  --connector-url http://127.0.0.1:23119/connector \
+  --max-tasks 20 \
+  --execute
+```
+
+本机实测 Zotero Desktop 的 Connector 与 MCP 端口均可连接；当前插件的 MCP 工具集
+为只读，因此“给已有条目自动挂附件”仍需要写入型插件或一次人工拖放。Connector
+路线不会为已存在的题录再次创建副本。
 
 ## 输出结构
 
